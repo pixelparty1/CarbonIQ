@@ -1,0 +1,459 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Navigation } from "@/components/Navigation";
+import { CreditCard3D } from "@/components/CreditCard3D";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Search, Filter, SlidersHorizontal, TrendingUp, MapPin, Clock } from "lucide-react";
+import { motion } from "framer-motion";
+import { supabase } from "@/lib/supabase";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+interface Transaction {
+  id: string;
+  buyer_id: string;
+  project_id: string;
+  credits_amount: number;
+  price_per_credit: number;
+  total_amount: number;
+  status: 'pending' | 'completed' | 'failed';
+  created_at: string;
+}
+
+export default function Marketplace() {
+  const navigate = useNavigate();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortBy, setSortBy] = useState("price");
+  const [filterBy, setFilterBy] = useState("all");
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Authentication check
+  useEffect(() => {
+    checkUser();
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT') {
+        navigate('/signin');
+      }
+    });
+  }, [navigate]);
+
+  // Fetch user's transactions
+  useEffect(() => {
+    if (user) {
+      fetchTransactions();
+    }
+  }, [user]);
+
+  async function checkUser() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      if (!user) {
+        navigate('/signin');
+      }
+    } catch (error) {
+      console.error('Error checking user:', error);
+      navigate('/signin');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function fetchTransactions() {
+    try {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('buyer_id', user?.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setTransactions(data || []);
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+    }
+  }
+
+  async function handlePurchase(credit: any) {
+    try {
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert([
+          {
+            buyer_id: user?.id,
+            project_id: credit.id,
+            credits_amount: credit.tons,
+            price_per_credit: credit.price,
+            total_amount: credit.tons * credit.price,
+            status: 'pending'
+          }
+        ]);
+
+      if (error) throw error;
+      
+      // Refresh transactions list
+      fetchTransactions();
+      
+      alert('Purchase initiated successfully!');
+    } catch (error) {
+      console.error('Error making purchase:', error);
+      alert('Failed to process purchase. Please try again.');
+    }
+  }
+
+  async function updateTransactionStatus(transactionId: string, newStatus: 'completed' | 'failed') {
+    try {
+      const { error } = await supabase
+        .from('transactions')
+        .update({ status: newStatus })
+        .eq('id', transactionId)
+        .eq('buyer_id', user?.id); // Extra security check
+
+      if (error) throw error;
+      
+      // Refresh transactions list
+      fetchTransactions();
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+      alert('Failed to update transaction status. Please try again.');
+    }
+  }
+
+  // Mock data
+  const carbonCredits = [
+    {
+      id: "CC-001",
+      tons: 50,
+      price: 25,
+      project: "Amazon Reforestation",
+      location: "Brazil",
+      verified: true,
+      expiry: "Dec 2025"
+    },
+    {
+      id: "CC-002", 
+      tons: 100,
+      price: 18,
+      project: "Wind Farm Development",
+      location: "Texas, USA",
+      verified: true,
+      expiry: "Mar 2026"
+    },
+    {
+      id: "CC-003",
+      tons: 25,
+      price: 32,
+      project: "Ocean Kelp Restoration", 
+      location: "California, USA",
+      verified: true,
+      expiry: "Aug 2025"
+    },
+    {
+      id: "CC-004",
+      tons: 75,
+      price: 22,
+      project: "Solar Panel Installation",
+      location: "India",
+      verified: false,
+      expiry: "Jan 2026"
+    },
+    {
+      id: "CC-005",
+      tons: 200,
+      price: 15,
+      project: "Biogas Plant",
+      location: "Kenya",
+      verified: true,
+      expiry: "Nov 2025"
+    },
+    {
+      id: "CC-006",
+      tons: 30,
+      price: 28,
+      project: "Mangrove Conservation",
+      location: "Indonesia",
+      verified: true,
+      expiry: "Sep 2025"
+    }
+  ];
+
+  const marketStats = [
+    { label: "Total Credits Available", value: "12,450", change: "+8.5%" },
+    { label: "Average Price", value: "$22.40", change: "-2.1%" },
+    { label: "Active Projects", value: "156", change: "+12.3%" },
+    { label: "Verified Credits", value: "89%", change: "+3.2%" }
+  ];
+
+  const filteredCredits = carbonCredits.filter(credit => {
+    const matchesSearch = credit.project.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         credit.location.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesFilter = filterBy === "all" || 
+                         (filterBy === "verified" && credit.verified) ||
+                         (filterBy === "pending" && !credit.verified);
+    return matchesSearch && matchesFilter;
+  });
+
+  const sortedCredits = [...filteredCredits].sort((a, b) => {
+    switch (sortBy) {
+      case "price":
+        return a.price - b.price;
+      case "tons":
+        return b.tons - a.tons;
+      case "expiry":
+        return new Date(a.expiry).getTime() - new Date(b.expiry).getTime();
+      default:
+        return 0;
+    }
+  });
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center" style={{ background: '#0D0D0D', color: '#E0E0E0' }}>
+      Loading...
+    </div>;
+  }
+
+  return (
+    <div className="min-h-screen" style={{ background: '#0D0D0D' }}>
+      <Navigation />
+      
+      <div className="container mx-auto px-6 py-8">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="mb-8"
+        >
+          <h1 className="text-3xl font-bold mb-2" style={{ color: '#E0E0E0' }}>Carbon Credits Marketplace</h1>
+          <p style={{ color: '#B0B0B0' }}>Buy and sell verified carbon credits from global sustainability projects</p>
+        </motion.div>
+
+        {/* Market Stats */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, duration: 0.6 }}
+          className="grid md:grid-cols-4 gap-6 mb-8"
+        >
+          {marketStats.map((stat, index) => (
+            <div key={stat.label} 
+                 className="p-6 rounded-lg text-center transition-transform duration-300 hover:translate-y-[-4px]"
+                 style={{ background: '#1C1C1C', border: '1px solid #2A2A2A' }}>
+              <div className="text-2xl font-bold mb-1" style={{ color: '#E0E0E0' }}>{stat.value}</div>
+              <div className="text-sm mb-2" style={{ color: '#B0B0B0' }}>{stat.label}</div>
+              <Badge variant={stat.change.startsWith('+') ? 'default' : 'destructive'} 
+                    className="text-xs"
+                    style={{ backgroundColor: stat.change.startsWith('+') ? '#4CAF50' : '#ef4444', color: '#E0E0E0' }}>
+                <TrendingUp className="h-3 w-3 mr-1" />
+                {stat.change}
+              </Badge>
+            </div>
+          ))}
+        </motion.div>
+
+        {/* Transaction History */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.6 }}
+          className="mb-8"
+        >
+          <h2 className="text-2xl font-bold mb-6" style={{ color: '#E0E0E0' }}>Transaction History</h2>
+          <div className="rounded-lg overflow-hidden" style={{ background: '#1C1C1C', border: '1px solid #2A2A2A' }}>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead style={{ color: '#8C8C8C' }}>Project ID</TableHead>
+                  <TableHead style={{ color: '#8C8C8C' }}>Credits</TableHead>
+                  <TableHead style={{ color: '#8C8C8C' }}>Price/Credit</TableHead>
+                  <TableHead style={{ color: '#8C8C8C' }}>Total</TableHead>
+                  <TableHead style={{ color: '#8C8C8C' }}>Status</TableHead>
+                  <TableHead style={{ color: '#8C8C8C' }}>Date</TableHead>
+                  <TableHead style={{ color: '#8C8C8C' }}>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {transactions.map((transaction) => (
+                  <TableRow key={transaction.id}>
+                    <TableCell style={{ color: '#E0E0E0' }}>{transaction.project_id}</TableCell>
+                    <TableCell style={{ color: '#E0E0E0' }}>{transaction.credits_amount}</TableCell>
+                    <TableCell style={{ color: '#E0E0E0' }}>${transaction.price_per_credit}</TableCell>
+                    <TableCell style={{ color: '#E0E0E0' }}>${transaction.total_amount}</TableCell>
+                    <TableCell>
+                      <Badge
+                        style={{
+                          backgroundColor: 
+                            transaction.status === 'completed' ? '#4CAF50' :
+                            transaction.status === 'failed' ? '#ef4444' : '#ff9800',
+                          color: '#E0E0E0'
+                        }}
+                      >
+                        {transaction.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell style={{ color: '#E0E0E0' }}>
+                      {new Date(transaction.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      {transaction.status === 'pending' && (
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            style={{ backgroundColor: '#4CAF50', color: '#E0E0E0' }}
+                            onClick={() => updateTransactionStatus(transaction.id, 'completed')}
+                          >
+                            Complete
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => updateTransactionStatus(transaction.id, 'failed')}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {transactions.length === 0 && (
+              <div className="text-center py-8" style={{ color: '#8C8C8C' }}>
+                No transactions found
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Filters */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.6 }}
+          className="p-6 rounded-lg mb-8"
+          style={{ background: '#1C1C1C', border: '1px solid #2A2A2A' }}
+        >
+          <div className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="flex-1">
+              <label className="text-sm font-medium mb-2 block" style={{ color: '#E0E0E0' }}>Search Projects</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4" style={{ color: '#8C8C8C' }} />
+                <Input
+                  placeholder="Search by project name or location..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                  style={{ background: '#0D0D0D', border: '1px solid #2A2A2A', color: '#E0E0E0' }}
+                />
+              </div>
+            </div>
+            
+            <div className="w-full md:w-48">
+              <label className="text-sm font-medium mb-2 block" style={{ color: '#E0E0E0' }}>Filter by Status</label>
+              <Select value={filterBy} onValueChange={setFilterBy}>
+                <SelectTrigger style={{ background: '#0D0D0D', border: '1px solid #2A2A2A', color: '#E0E0E0' }}>
+                  <Filter className="h-4 w-4 mr-2" style={{ color: '#8C8C8C' }} />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent style={{ background: '#1C1C1C', border: '1px solid #2A2A2A' }}>
+                  <SelectItem value="all" style={{ color: '#E0E0E0' }}>All Credits</SelectItem>
+                  <SelectItem value="verified" style={{ color: '#E0E0E0' }}>Verified Only</SelectItem>
+                  <SelectItem value="pending" style={{ color: '#E0E0E0' }}>Pending Verification</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="w-full md:w-48">
+              <label className="text-sm font-medium mb-2 block" style={{ color: '#E0E0E0' }}>Sort by</label>
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger style={{ background: '#0D0D0D', border: '1px solid #2A2A2A', color: '#E0E0E0' }}>
+                  <SlidersHorizontal className="h-4 w-4 mr-2" style={{ color: '#8C8C8C' }} />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent style={{ background: '#1C1C1C', border: '1px solid #2A2A2A' }}>
+                  <SelectItem value="price" style={{ color: '#E0E0E0' }}>Price (Low to High)</SelectItem>
+                  <SelectItem value="tons" style={{ color: '#E0E0E0' }}>Credits Available</SelectItem>
+                  <SelectItem value="expiry" style={{ color: '#E0E0E0' }}>Expiry Date</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Credits Grid */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          {sortedCredits.map((credit, index) => (
+            <motion.div
+              key={credit.id}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1, duration: 0.6 }}
+              className="relative"
+            >
+              <CreditCard3D {...credit} />
+              <Button
+                className="mt-4 w-full hover:bg-[#66BB6A] transition-colors"
+                style={{ backgroundColor: '#4CAF50', color: '#E0E0E0' }}
+                onClick={() => handlePurchase(credit)}
+              >
+                Purchase Credits
+              </Button>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* No Results */}
+        {sortedCredits.length === 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center py-16"
+          >
+            <MapPin className="h-16 w-16 mx-auto mb-4" style={{ color: '#8C8C8C' }} />
+            <h3 className="text-xl font-semibold mb-2" style={{ color: '#E0E0E0' }}>No credits found</h3>
+            <p style={{ color: '#B0B0B0' }}>Try adjusting your search or filter criteria</p>
+          </motion.div>
+        )}
+
+        {/* Sell Your Credits CTA */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.6 }}
+          className="p-8 rounded-2xl text-center"
+          style={{ background: '#1C1C1C', border: '1px solid #2A2A2A' }}
+        >
+          <h2 className="text-2xl font-bold mb-4" style={{ color: '#E0E0E0' }}>Have Credits to Sell?</h2>
+          <p className="mb-6 max-w-2xl mx-auto" style={{ color: '#B0B0B0' }}>
+            List your verified carbon credits on our marketplace and connect with buyers worldwide. 
+            Get competitive pricing and transparent transactions.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Button size="lg" 
+                    style={{ backgroundColor: '#4CAF50', color: '#E0E0E0' }}
+                    className="hover:bg-[#66BB6A] transition-colors">
+              List Your Credits
+            </Button>
+            <Button size="lg" 
+                    style={{ background: '#1C1C1C', border: '1px solid #2A2A2A', color: '#E0E0E0' }}
+                    className="hover:bg-[#2A2A2A] transition-colors">
+              Learn More
+            </Button>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
